@@ -3,6 +3,10 @@ FROM nvidia/cuda:${CUDA_VERSION}-base-ubuntu20.04 as build
 
 ARG TARGETARCH
 
+# Args needed for builds using private runfiles
+ARG DRIVER_VERSION
+ARG PRIVATE_RUNFILE=false
+
 SHELL ["/bin/bash", "-c"]
 
 RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
@@ -28,6 +32,19 @@ RUN OS_ARCH=${TARGETARCH/x86_64/amd64} && OS_ARCH=${OS_ARCH/aarch64/arm64} && \
 ENV PATH /usr/local/go/bin:$PATH
 
 WORKDIR /work
+
+# Add any private runfiles
+ADD NVIDIA-Linux-*-${DRIVER_VERSION}.run .
+
+# Only include private runfile for the TARGETARCH
+RUN if [ "$PRIVATE_RUNFILE" != "true" ]; then \
+        rm *.run || true; \
+    elif [ "$TARGETARCH" == "amd64" ]; then \
+        chmod +x NVIDIA-Linux-x86_64-${DRIVER_VERSION}.run; \
+        rm NVIDIA-Linux-aarch64-${DRIVER_VERSION}.run || true; \
+    else \
+        chmod +x NVIDIA-Linux-aarch64-${DRIVER_VERSION}.run; \
+        rm NVIDIA-Linux-x86_64-${DRIVER_VERSION}.run || true; fi
 
 RUN git clone https://gitlab.com/nvidia/container-images/driver && \
     cd driver/vgpu/src && \
@@ -57,6 +74,9 @@ ARG DISABLE_VGPU_VERSION_CHECK=true
 ENV DISABLE_VGPU_VERSION_CHECK=$DISABLE_VGPU_VERSION_CHECK
 ENV NVIDIA_VISIBLE_DEVICES=void
 
+# Args needed for builds using private runfiles
+ARG PRIVATE_RUNFILE=false
+
 RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
 
 RUN echo "TARGETARCH=$TARGETARCH"
@@ -74,16 +94,17 @@ RUN /tmp/install.sh reposetup && /tmp/install.sh depinstall && \
 COPY nvidia-driver /usr/local/bin
 
 COPY --from=build /work/vgpu-util /usr/local/bin
+COPY --from=build /work/NVIDIA-Linux-*-${DRIVER_VERSION}.run drivers/
 
 ADD drivers drivers/
 
 # Fetch the installer automatically for passthrough/baremetal types
-RUN if [ "$DRIVER_TYPE" != "vgpu" ]; then \
+RUN if [ "$PRIVATE_RUNFILE" != "true" ] && [ "$DRIVER_TYPE" != "vgpu" ]; then \
     cd drivers && \
     /tmp/install.sh download_installer; fi
 
 # Fabric manager packages are not available for arm64
-RUN if [ "$DRIVER_TYPE" != "vgpu" ] && [ "$TARGETARCH" != "arm64" ]; then \
+RUN if [ "$PRIVATE_RUNFILE" != "true" ] && [ "$DRIVER_TYPE" != "vgpu" ] && [ "$TARGETARCH" != "arm64" ]; then \
     apt-get update && \
     apt-get install -y --no-install-recommends nvidia-fabricmanager-${DRIVER_BRANCH}=${DRIVER_VERSION}-1 \
     libnvidia-nscq-${DRIVER_BRANCH}=${DRIVER_VERSION}-1; fi

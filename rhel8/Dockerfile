@@ -3,6 +3,10 @@ FROM nvidia/cuda:${CUDA_VERSION}-base-ubi8 as build
 
 ARG TARGETARCH
 
+# Args needed for builds using private runfiles
+ARG DRIVER_VERSION
+ARG PRIVATE_RUNFILE=false
+
 SHELL ["/bin/bash", "-c"]
 
 RUN dnf install -y git wget
@@ -17,6 +21,19 @@ RUN OS_ARCH=${TARGETARCH/x86_64/amd64} && OS_ARCH=${OS_ARCH/aarch64/arm64} && \
 ENV PATH /usr/local/go/bin:$PATH
 
 WORKDIR /work
+
+# Add any private runfiles
+ADD NVIDIA-Linux-*-${DRIVER_VERSION}.run .
+
+# Only include private runfile for the TARGETARCH
+RUN if [ "$PRIVATE_RUNFILE" != "true" ]; then \
+        rm *.run || true; \
+    elif [ "$TARGETARCH" == "amd64" ]; then \
+        chmod +x NVIDIA-Linux-x86_64-${DRIVER_VERSION}.run; \
+        rm NVIDIA-Linux-aarch64-${DRIVER_VERSION}.run || true; \
+    else \
+        chmod +x NVIDIA-Linux-aarch64-${DRIVER_VERSION}.run; \
+        rm NVIDIA-Linux-x86_64-${DRIVER_VERSION}.run || true; fi
 
 RUN git clone https://gitlab.com/nvidia/container-images/driver && \
     cd driver/vgpu/src && \
@@ -46,7 +63,11 @@ ENV DISABLE_VGPU_VERSION_CHECK=$DISABLE_VGPU_VERSION_CHECK
 # Avoid dependency of container-toolkit for driver container
 ENV NVIDIA_VISIBLE_DEVICES=void
 
+# Args needed for builds using private runfiles
+ARG PRIVATE_RUNFILE=false
+
 ADD install.sh /tmp/
+COPY --from=build /work/NVIDIA-Linux-*-${DRIVER_VERSION}.run drivers/
 
 RUN NVIDIA_GPGKEY_SUM=d0664fbbdb8c32356d45de36c5984617217b2d0bef41b93ccecd326ba3b80c87 && \
     OS_ARCH=${TARGETARCH/amd64/x86_64} && OS_ARCH=${OS_ARCH/arm64/sbsa} && \
@@ -62,14 +83,14 @@ RUN sh /tmp/install.sh depinstall && \
 ADD drivers drivers/
 
 # Fetch the installer automatically for passthrough/baremetal types
-RUN if [ "$DRIVER_TYPE" != "vgpu" ]; then \
+RUN if [ "$PRIVATE_RUNFILE" != "true" ] && [ "$DRIVER_TYPE" != "vgpu" ]; then \
     cd drivers && \
     DRIVER_ARCH=${TARGETARCH/amd64/x86_64} && DRIVER_ARCH=${DRIVER_ARCH/arm64/aarch64} && \
     curl -fSsl -O $BASE_URL/$DRIVER_VERSION/NVIDIA-Linux-$DRIVER_ARCH-$DRIVER_VERSION.run && \
     chmod +x  NVIDIA-Linux-$DRIVER_ARCH-$DRIVER_VERSION.run; fi
 
 # Install fabric-manager packages
-RUN if [ "$DRIVER_TYPE" != "vgpu" ] && [ "$TARGETARCH" != "arm64" ]; then \
+RUN if [ "$PRIVATE_RUNFILE" != "true" ] && [ "$DRIVER_TYPE" != "vgpu" ] && [ "$TARGETARCH" != "arm64" ]; then \
     versionArray=(${DRIVER_VERSION//./ }); \
     DRIVER_BRANCH=${versionArray[0]}; \
     if [ ${versionArray[0]} -ge 470 ] || ([ ${versionArray[0]} == 460 ] && [ ${versionArray[1]} -ge 91 ]); then \
