@@ -21,6 +21,7 @@ on:
       - completed
     branches:
       - main
+      - holodeck-key
 
 jobs:
   e2e-tests-nvidiadriver:
