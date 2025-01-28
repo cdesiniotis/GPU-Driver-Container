@@ -21,6 +21,7 @@ updates:
   - package-ecosystem: "docker"
     directories:
       - "*"
-    open-pull-requests-limit: 15
+      - "*/precompiled/*"
+    open-pull-requests-limit: 30
     schedule:
       interval: "daily"
