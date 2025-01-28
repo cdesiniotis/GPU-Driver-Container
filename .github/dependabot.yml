@@ -19,8 +19,10 @@ updates:
       interval: "daily"
 
   - package-ecosystem: "docker"
+    target-branch: dependabot-cfg
     directories:
       - "*"
-    open-pull-requests-limit: 15
+      - "*/precompiled/*"
+    open-pull-requests-limit: 25
     schedule:
       interval: "daily"
